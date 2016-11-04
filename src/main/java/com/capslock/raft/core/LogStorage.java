@@ -8,6 +8,8 @@ import java.util.List;
 public interface LogStorage {
     long getFirstAvailableIndex();
 
+    long getLastLogIndex();
+
     long getStartIndex();
 
     LogEntry getLastLogEntry();

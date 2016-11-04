@@ -2,26 +2,44 @@ package com.capslock.raft.core;
 
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Created by alvin.
  */
-public class LogMvStorage implements LogStorage {
+@Component
+public class MvMapBasedLogStorage implements LogStorage {
+    private MVStore mvStore;
     private MVMap<Long, LogEntry> logEntryMVMap;
+    @Value("${storage.dir}")
+    private String storageDir;
 
     @PostConstruct
     public void init() {
-        final MVStore mvStore = MVStore.open("log");
-        logEntryMVMap = mvStore.openMap("logMap");
+        mvStore = MVStore.open(storageDir.concat("\\raft"));
+        logEntryMVMap = mvStore.openMap("log");
+    }
+
+    @PreDestroy
+    public void destroy() {
+        mvStore.commit();
+        mvStore.close();
     }
 
     @Override
     public long getFirstAvailableIndex() {
         return logEntryMVMap.lastKey() + 1;
+    }
+
+    @Override
+    public long getLastLogIndex() {
+        return logEntryMVMap.lastKey();
     }
 
     @Override

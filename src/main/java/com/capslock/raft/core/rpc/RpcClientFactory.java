@@ -10,14 +10,6 @@ import retrofit2.converter.jackson.JacksonConverterFactory;
  */
 @Component
 public class RpcClientFactory {
-    private String buildBaseUrl(final String host, final int port) {
-        String url = "http://".concat(host);
-        if (port != 80) {
-            url = url.concat(":" + port);
-        }
-        return url;
-    }
-
     public RpcClient createRpcClient(final String host, final int port) {
         return new Retrofit.Builder()
                 .baseUrl(buildBaseUrl(host, port))
@@ -25,5 +17,13 @@ public class RpcClientFactory {
                 .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
                 .build()
                 .create(RpcClient.class);
+    }
+
+    private String buildBaseUrl(final String host, final int port) {
+        String url = "http://".concat(host);
+        if (port != 80) {
+            url = url.concat(":" + port);
+        }
+        return url;
     }
 }

@@ -1,6 +1,8 @@
 package com.capslock.raft.core.rpc;
 
 import com.capslock.raft.core.RaftService;
+import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
+import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,5 +22,10 @@ public class RpcServer {
     @RequestMapping(value = "vote", method = RequestMethod.POST)
     public RequestVoteResponse requestVote(@RequestBody final RequestVoteRequest request) {
         return raftService.handleRequestVote(request);
+    }
+
+    @RequestMapping(value = "append-entries", method = RequestMethod.POST)
+    public AppendEntriesResponse requestVote(@RequestBody final AppendEntriesRequest request) {
+        return raftService.handleAppendEntries(request);
     }
 }
