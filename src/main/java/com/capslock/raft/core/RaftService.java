@@ -1,23 +1,30 @@
 package com.capslock.raft.core;
 
+import com.capslock.raft.core.model.Endpoint;
+import com.capslock.raft.core.model.LogEntry;
+import com.capslock.raft.core.model.RaftServerState;
+import com.capslock.raft.core.model.Role;
 import com.capslock.raft.core.rpc.RpcClient;
+import com.capslock.raft.core.rpc.RpcClientFactory;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
+import com.capslock.raft.core.storage.LogStorage;
+import com.capslock.raft.core.storage.RaftContextStorage;
+import com.google.common.net.HostAndPort;
 import io.reactivex.schedulers.Schedulers;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
+import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.Random;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -25,21 +32,25 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Component
 public class RaftService {
-    private static final int ELECTION_TIME_OUT = 1000;
+    private static final int ELECTION_TIME_OUT = 3000;
     private ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> electionTask;
     private Role role = Role.FOLLOWER;
     private ConcurrentHashMap<Endpoint, RpcClient> rpcClientMap = new ConcurrentHashMap<>();
     private Endpoint localEndpoint;
     private RaftServerState raftServerState;
-    private AtomicInteger votesGranted = new AtomicInteger(0);
-    private AtomicInteger votesResponsed = new AtomicInteger(0);
+    private AtomicInteger voteGranted = new AtomicInteger(0);
+    private AtomicInteger voteResponsed = new AtomicInteger(0);
     private volatile boolean electCompleted = false;
+    @Value("#{'${cluster.nodes}'.split(',')}")
+    private List<String> rawClusterNodeList;
 
     @Autowired
     private RaftContextStorage raftContextStorage;
     @Autowired
     private LogStorage logStorage;
+    @Autowired
+    private RpcClientFactory rpcClientFactory;
 
     @PostConstruct
     public void init() throws UnknownHostException {
@@ -50,6 +61,15 @@ public class RaftService {
             raftServerState = new RaftServerState();
             saveState();
         }
+        rawClusterNodeList
+                .stream()
+                .map(address -> {
+                    final HostAndPort hostAndPort = HostAndPort.fromString(address);
+                    return new Endpoint(hostAndPort.getHostText(), hostAndPort.getPort());
+                })
+                .filter(otherEndPoint -> !otherEndPoint.equals(localEndpoint))
+                .forEach(endpoint -> rpcClientMap.put(endpoint, rpcClientFactory.createRpcClient(endpoint)));
+
         startElectionTimer();
     }
 
@@ -58,15 +78,17 @@ public class RaftService {
     }
 
     private void startElectionTimer() {
-        electionTask = scheduledExecutorService.schedule(this::startElect, ELECTION_TIME_OUT, TimeUnit.MILLISECONDS);
+        electionTask = scheduledExecutorService.schedule(this::startElect, new Random().nextInt(ELECTION_TIME_OUT), TimeUnit.MILLISECONDS);
     }
 
     public void startElect() {
-        role = Role.CANDIDATE;
-        electCompleted = false;
+        becomeCandidate();
+
+        raftServerState.increaseTerm();
         raftServerState.setVoteFor(localEndpoint);
-        votesGranted.addAndGet(1);
-        votesResponsed.addAndGet(1);
+        voteGranted.set(1);
+        voteResponsed.set(1);
+        electCompleted = false;
 
         rpcClientMap.forEachEntry(rpcClientMap.size(), entry -> {
             requestVote(entry.getKey(), entry.getValue());
@@ -75,7 +97,8 @@ public class RaftService {
 
     public void requestVote(final Endpoint destination, final RpcClient rpcClient) {
         final long lastLogIndex = logStorage.getFirstAvailableIndex() - 1;
-        final long lastLogTerm = logStorage.getLogEntryAt(lastLogIndex).getTerm();
+        final LogEntry lastLogEntry = logStorage.getLogEntryAt(lastLogIndex);
+        final long lastLogTerm = lastLogEntry == null ? 0 : lastLogEntry.getTerm();
 
         final RequestVoteRequest request = RequestVoteRequest
                 .builder()
@@ -89,8 +112,13 @@ public class RaftService {
         rpcClient.requestVote(request)
                 .observeOn(Schedulers.io())
                 .subscribeOn(Schedulers.computation())
-                .subscribe(response -> {
-                    this.votesResponsed.addAndGet(1);
+                .doOnError(throwable -> {
+                    if (voteResponsed.addAndGet(1) == clusterSize()) {
+                        electCompleted = true;
+                    }
+                })
+                .doOnNext(response -> {
+                    this.voteResponsed.addAndGet(1);
                     if (electCompleted) {
                         return;
                     }
@@ -99,23 +127,42 @@ public class RaftService {
                     } else {
                         processVoteRequestRejected(response);
                     }
-                });
+                })
+                .subscribe();
+    }
+
+    private int clusterSize() {
+        return rpcClientMap.size() + 1;
     }
 
     private void processVoteRequestGranted() {
-        final int granted = this.votesGranted.addAndGet(1);
-        if (granted > (rpcClientMap.size() + 1) / 2) {
+        final int granted = this.voteGranted.addAndGet(1);
+        if (granted > majorSize()) {
             this.electCompleted = true;
             becomeLeader();
         }
     }
 
-    private void processVoteRequestRejected(final RequestVoteResponse response) {
+    private int majorSize() {
+        return (rpcClientMap.size() + 2) / 2;
+    }
 
+    private void processVoteRequestRejected(final RequestVoteResponse response) {
+        if (response.getTerm() > raftServerState.getTerm()) {
+
+        }
     }
 
     private void becomeLeader() {
         role = Role.LEADER;
+    }
+
+    private void becomeCandidate() {
+        role = Role.CANDIDATE;
+    }
+
+    private void becomeFollower() {
+        role = Role.FOLLOWER;
     }
 
     public synchronized RequestVoteResponse handleRequestVote(final RequestVoteRequest request) {
@@ -130,7 +177,7 @@ public class RaftService {
                 && logOkay
                 && (raftServerState.getVoteFor() == null || Objects.equals(raftServerState.getVoteFor(), request.getSource()));
 
-        final RequestVoteResponse response = new RequestVoteResponse(grant);
+        final RequestVoteResponse response = new RequestVoteResponse(grant, raftServerState.getTerm());
         if (grant) {
             raftServerState.setVoteFor(request.getSource());
             saveState();
@@ -148,7 +195,7 @@ public class RaftService {
             raftServerState.setTerm(term);
             raftServerState.setCommittedLogIndex(0);
             raftServerState.setVoteFor(null);
-            role = Role.FOLLOWER;
+            becomeFollower();
             saveState();
         }
     }

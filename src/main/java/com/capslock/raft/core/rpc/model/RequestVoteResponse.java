@@ -10,6 +10,7 @@ import lombok.Data;
 @Data
 public class RequestVoteResponse {
     private boolean accepted;
+    private long term;
 
     public RequestVoteResponse() {
     }

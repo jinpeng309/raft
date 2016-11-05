@@ -1,4 +1,6 @@
-package com.capslock.raft.core;
+package com.capslock.raft.core.storage;
+
+import com.capslock.raft.core.model.RaftServerState;
 
 /**
  * Created by alvin.

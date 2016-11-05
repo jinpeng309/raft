@@ -1,8 +1,9 @@
-package com.capslock.raft.core;
+package com.capslock.raft.core.storage;
 
+import com.capslock.raft.core.model.LogEntry;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -15,14 +16,12 @@ import java.util.List;
  */
 @Component
 public class MvMapBasedLogStorage implements LogStorage {
-    private MVStore mvStore;
     private MVMap<Long, LogEntry> logEntryMVMap;
-    @Value("${storage.dir}")
-    private String storageDir;
+    @Autowired
+    private MVStore mvStore;
 
     @PostConstruct
     public void init() {
-        mvStore = MVStore.open(storageDir.concat("\\raft"));
         logEntryMVMap = mvStore.openMap("log");
     }
 
@@ -34,7 +33,7 @@ public class MvMapBasedLogStorage implements LogStorage {
 
     @Override
     public long getFirstAvailableIndex() {
-        return logEntryMVMap.lastKey() + 1;
+        return logEntryMVMap.lastKey() == null ? 1 : logEntryMVMap.lastKey() + 1;
     }
 
     @Override

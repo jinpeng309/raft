@@ -1,6 +1,6 @@
 package com.capslock.raft.core.rpc.model;
 
-import com.capslock.raft.core.Endpoint;
+import com.capslock.raft.core.model.Endpoint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

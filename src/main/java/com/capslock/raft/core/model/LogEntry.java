@@ -1,4 +1,4 @@
-package com.capslock.raft.core;
+package com.capslock.raft.core.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

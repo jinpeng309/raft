@@ -1,7 +1,9 @@
-package com.capslock.raft.core;
+package com.capslock.raft.core.storage;
 
+import com.capslock.raft.core.model.RaftServerState;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -14,11 +16,11 @@ import javax.annotation.PreDestroy;
 public class MvMapBasedRaftContextStorage implements RaftContextStorage {
     private static final String STATE_KEY = "STATE";
     private MVMap<String, Object> contextMap;
+    @Autowired
     private MVStore mvStore;
 
     @PostConstruct
     public void init() {
-        mvStore = MVStore.open("raft");
         contextMap = mvStore.openMap("context");
     }
 

@@ -1,4 +1,4 @@
-package com.capslock.raft.core;
+package com.capslock.raft.core.model;
 
 /**
  * Created by alvin.
