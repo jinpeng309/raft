@@ -40,7 +40,7 @@ public class RaftService {
     private RaftServerState raftServerState;
     private AtomicInteger voteGranted = new AtomicInteger(0);
     private AtomicInteger voteResponsed = new AtomicInteger(0);
-    private AtomicLong commitedLogIndex = new AtomicLong(0);
+    private AtomicLong committedLogIndex = new AtomicLong(0);
     private volatile boolean electCompleted = false;
     @Value("#{'${cluster.nodes}'.split(',')}")
     private List<String> rawClusterNodeList;
@@ -200,6 +200,7 @@ public class RaftService {
                     .lastLogTerm(lastLogTerm)
                     .lastLogIndex(lastLogIndex)
                     .logEntries(logEntries)
+                    .leaderCommittedLogIndex(committedLogIndex.get())
                     .build();
 
             clusterNode
