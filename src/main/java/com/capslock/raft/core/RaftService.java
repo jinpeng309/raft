@@ -121,14 +121,19 @@ public class RaftService {
         clusterNode.requestVote(request)
                 .doOnError(throwable -> {
                     if (voteResponsed.addAndGet(1) == clusterSize()) {
-                        startElectionTimer();
                         electCompleted = true;
+                        if (role != Role.LEADER) {
+                            startElectionTimer();
+                        }
                     }
                 })
                 .doOnNext(response -> {
-                    this.voteResponsed.addAndGet(1);
+                    if (voteResponsed.addAndGet(1) == clusterSize()) {
+                        if (role != Role.LEADER) {
+                            startElectionTimer();
+                        }
+                    }
                     if (electCompleted) {
-                        startElectionTimer();
                         return;
                     }
                     if (response.isAccepted()) {
