@@ -11,6 +11,7 @@ import retrofit2.converter.jackson.JacksonConverterFactory;
  */
 @Component
 public class RpcClientFactory {
+
     public RpcClient createRpcClient(final String host, final int port) {
         return new Retrofit.Builder()
                 .baseUrl(buildBaseUrl(host, port))
@@ -31,6 +32,5 @@ public class RpcClientFactory {
         }
         return url;
     }
-
 
 }

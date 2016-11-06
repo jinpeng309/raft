@@ -21,11 +21,11 @@ public class RpcServer {
 
     @RequestMapping(value = "vote", method = RequestMethod.POST)
     public RequestVoteResponse requestVote(@RequestBody final RequestVoteRequest request) {
-        return raftService.handleRequestVote(request);
+        return raftService.processRequestVote(request);
     }
 
     @RequestMapping(value = "append-entries", method = RequestMethod.POST)
-    public AppendEntriesResponse requestVote(@RequestBody final AppendEntriesRequest request) {
-        return raftService.handleAppendEntries(request);
+    public AppendEntriesResponse appendEntries(@RequestBody final AppendEntriesRequest request) {
+        return raftService.processAppendEntries(request);
     }
 }
