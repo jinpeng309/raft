@@ -38,7 +38,7 @@ public class MvMapBasedLogStorage implements LogStorage {
 
     @Override
     public long getLastLogIndex() {
-        return logEntryMVMap.lastKey() == null ? 1 : logEntryMVMap.lastKey();
+        return logEntryMVMap.lastKey() == null ? 0 : logEntryMVMap.lastKey();
     }
 
     @Override
@@ -65,6 +65,9 @@ public class MvMapBasedLogStorage implements LogStorage {
     @Override
     public List<LogEntry> getLogEntries(final long start, final long end) {
         final List<LogEntry> logEntries = new ArrayList<>();
+        if (start == 0) {
+            return logEntries;
+        }
         for (long i = start; i < end; i++) {
             final LogEntry logEntry = logEntryMVMap.get(i);
             if (logEntry == null) {

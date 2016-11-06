@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Component
 public class RaftService {
-    private static final int ELECTION_TIME_OUT = 3000;
+    private static final int ELECTION_TIME_OUT = 5000;
     private static final int MAX_APPEND_SIZE = 10;
     private ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> electionTask;
@@ -87,7 +87,9 @@ public class RaftService {
     }
 
     private void startElectionTimer() {
-        electionTask = scheduledExecutorService.schedule(this::startElect, new Random().nextInt(ELECTION_TIME_OUT), TimeUnit.MILLISECONDS);
+        final int timeout = new Random().nextInt(20000);
+        System.out.println("timeout " + timeout);
+        electionTask = scheduledExecutorService.schedule(this::startElect, timeout, TimeUnit.MILLISECONDS);
     }
 
     public void startElect() {
@@ -174,6 +176,8 @@ public class RaftService {
         cancelElectionTask();
         leader = localEndpoint;
         appendLogEntriesToFollowers();
+        System.out.println("become leader");
+        scheduledExecutorService.scheduleAtFixedRate(this::appendLogEntriesToFollowers, 0, 1, TimeUnit.SECONDS);
     }
 
     private long getTermForLogIndex(final long logIndex) {
@@ -227,17 +231,17 @@ public class RaftService {
     }
 
     public synchronized RequestVoteResponse processRequestVote(final RequestVoteRequest request) {
+        System.out.println(request);
         resetElectionTask();
         updateTerm(request.getTerm());
         //paper 5.4.2
         final long localLastLogIndex = logStorage.getLastLogIndex();
-        final long localLastLogTerm = logStorage.getLogEntryAt(localLastLogIndex).getTerm();
+        final long localLastLogTerm = getTermForLogIndex(localLastLogIndex);
         final boolean logOkay = request.getLastLogTerm() > localLastLogTerm
                 || (localLastLogTerm == request.getLastLogTerm() && localLastLogIndex <= request.getLastLogIndex());
         final boolean grant = raftServerState.getTerm() == request.getTerm()
                 && logOkay
                 && (raftServerState.getVoteFor() == null || Objects.equals(raftServerState.getVoteFor(), request.getSource()));
-
         final RequestVoteResponse response = new RequestVoteResponse(grant, raftServerState.getTerm());
         if (grant) {
             raftServerState.setVoteFor(request.getSource());
@@ -254,7 +258,9 @@ public class RaftService {
 
     public void resetElectionTask() {
         electionTask.cancel(false);
-        startElectionTimer();
+        if (role != Role.LEADER) {
+            startElectionTimer();
+        }
     }
 
     public void cancelElectionTask() {
