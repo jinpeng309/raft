@@ -31,7 +31,7 @@ public class RaftClusterNode {
     }
 
 
-    public Observable<AppendEntriesResponse> appendLogEntries(final AppendEntriesRequest request) {
+    public synchronized Observable<AppendEntriesResponse> appendLogEntries(final AppendEntriesRequest request) {
         if (isAppending()) {
             return Observable.empty();
         }
