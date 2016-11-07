@@ -1,6 +1,10 @@
 package com.capslock.raft.core;
 
-import com.capslock.raft.core.model.*;
+import com.capslock.raft.core.model.Endpoint;
+import com.capslock.raft.core.model.LogEntry;
+import com.capslock.raft.core.model.RaftClusterNode;
+import com.capslock.raft.core.model.RaftServerState;
+import com.capslock.raft.core.model.Role;
 import com.capslock.raft.core.rpc.RpcClientFactory;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
@@ -16,13 +20,18 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Random;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Logger;
 
 /**
  * Created by alvin.
@@ -32,10 +41,12 @@ public class RaftService {
     private static final int ELECTION_TIME_OUT = 5000;
     private static final int MAX_APPEND_SIZE = 10;
     private ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledExecutorService heartBeatScheduler = Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
+    private List<ScheduledFuture<?>> heartBeatTasks = new ArrayList<>();
     private ScheduledFuture<?> electionTask;
     private Role role = Role.FOLLOWER;
     private Endpoint leader;
-    private ConcurrentHashMap<Endpoint, RaftClusterNode> nodeMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<Endpoint, RaftClusterNode> clusterNodeMap = new ConcurrentHashMap<>();
     private Endpoint localEndpoint;
     private RaftServerState raftServerState;
     private AtomicInteger voteGranted = new AtomicInteger(0);
@@ -44,7 +55,7 @@ public class RaftService {
     private volatile boolean electCompleted = false;
     @Value("#{'${cluster.nodes}'.split(',')}")
     private List<String> rawClusterNodeList;
-
+    private Logger logger = Logger.getLogger("service");
     @Autowired
     private RaftContextStorage raftContextStorage;
     @Autowired
@@ -71,7 +82,7 @@ public class RaftService {
                 .forEach(endpoint -> {
                     final RaftClusterNode node = new RaftClusterNode(endpoint,
                             rpcClientFactory.createRpcClient(endpoint));
-                    nodeMap.put(endpoint, node);
+                    clusterNodeMap.put(endpoint, node);
                 });
 
         if (clusterSize() % 2 != 1) {
@@ -87,12 +98,12 @@ public class RaftService {
     }
 
     private void startElectionTimer() {
-        final int timeout = new Random().nextInt(20000);
-        System.out.println("timeout " + timeout);
+        final int timeout = 10000;
         electionTask = scheduledExecutorService.schedule(this::startElect, timeout, TimeUnit.MILLISECONDS);
     }
 
     public void startElect() {
+        logger.info("start elect");
         becomeCandidate();
 
         raftServerState.increaseTerm();
@@ -101,10 +112,10 @@ public class RaftService {
         voteResponsed.set(1);
         electCompleted = false;
 
-        nodeMap.forEachEntry(nodeMap.size(), entry -> requestVote(entry.getValue()));
+        clusterNodeMap.forEachEntry(clusterNodeMap.size(), entry -> requestVote(entry.getValue()));
     }
 
-    public void requestVote(final RaftClusterNode clusterNode) {
+    public synchronized void requestVote(final RaftClusterNode clusterNode) {
         final Endpoint destination = clusterNode.getEndpoint();
 
         final long lastLogIndex = logStorage.getFirstAvailableIndex() - 1;
@@ -125,14 +136,14 @@ public class RaftService {
                     if (voteResponsed.addAndGet(1) == clusterSize()) {
                         electCompleted = true;
                         if (role != Role.LEADER) {
-                            startElectionTimer();
+                            resetElectionTask();
                         }
                     }
                 })
                 .doOnNext(response -> {
                     if (voteResponsed.addAndGet(1) == clusterSize()) {
                         if (role != Role.LEADER) {
-                            startElectionTimer();
+                            resetElectionTask();
                         }
                     }
                     if (electCompleted) {
@@ -149,7 +160,7 @@ public class RaftService {
     }
 
     private int clusterSize() {
-        return nodeMap.size() + 1;
+        return clusterNodeMap.size() + 1;
     }
 
     private int majorSize() {
@@ -164,7 +175,6 @@ public class RaftService {
         }
     }
 
-
     private void processVoteRequestRejected(final RequestVoteResponse response) {
         if (response.getTerm() > raftServerState.getTerm()) {
 
@@ -172,12 +182,25 @@ public class RaftService {
     }
 
     private void becomeLeader() {
+        logger.info("become leader");
         role = Role.LEADER;
         cancelElectionTask();
         leader = localEndpoint;
         appendLogEntriesToFollowers();
-        System.out.println("become leader");
-        scheduledExecutorService.scheduleAtFixedRate(this::appendLogEntriesToFollowers, 0, 1, TimeUnit.SECONDS);
+        startHeartBeat();
+    }
+
+    private void startHeartBeat() {
+        clusterNodeMap.forEachValue(clusterNodeMap.size(), clusterNode -> {
+            ScheduledFuture<?> heartBeatTask = heartBeatScheduler.scheduleAtFixedRate(clusterNode::heartBeat, 0, 1, TimeUnit.SECONDS);
+            heartBeatTasks.add(heartBeatTask);
+        });
+    }
+
+    private void cancelHeartBeat() {
+        heartBeatTasks.forEach(task -> {
+            task.cancel(false);
+        });
     }
 
     private long getTermForLogIndex(final long logIndex) {
@@ -186,7 +209,7 @@ public class RaftService {
     }
 
     private void appendLogEntriesToFollowers() {
-        nodeMap.forEachValue(nodeMap.size(), this::appendLogEntriesToFollow);
+        clusterNodeMap.forEachValue(clusterNodeMap.size(), this::appendLogEntriesToFollow);
     }
 
     private void appendLogEntriesToFollow(final RaftClusterNode clusterNode) {
@@ -223,15 +246,17 @@ public class RaftService {
     }
 
     private void becomeCandidate() {
+        cancelHeartBeat();
         role = Role.CANDIDATE;
     }
 
     private void becomeFollower() {
+        cancelHeartBeat();
         role = Role.FOLLOWER;
     }
 
     public synchronized RequestVoteResponse processRequestVote(final RequestVoteRequest request) {
-        System.out.println(request);
+        logger.info(request.toString());
         resetElectionTask();
         updateTerm(request.getTerm());
         //paper 5.4.2
@@ -275,5 +300,10 @@ public class RaftService {
             becomeFollower();
             saveState();
         }
+    }
+
+    public void processHeartBeat() {
+        System.out.println("heart beat");
+        resetElectionTask();
     }
 }

@@ -32,5 +32,4 @@ public class RpcClientFactory {
         }
         return url;
     }
-
 }

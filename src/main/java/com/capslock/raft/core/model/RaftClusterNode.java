@@ -30,7 +30,6 @@ public class RaftClusterNode {
         return isAppending.get();
     }
 
-
     public synchronized Observable<AppendEntriesResponse> appendLogEntries(final AppendEntriesRequest request) {
         if (isAppending()) {
             return Observable.empty();
@@ -51,5 +50,9 @@ public class RaftClusterNode {
                 .requestVote(request)
                 .observeOn(Schedulers.io())
                 .subscribeOn(Schedulers.computation());
+    }
+
+    public void heartBeat() {
+        getRpcClient().heartBeat().observeOn(Schedulers.io()).subscribe();
     }
 }

@@ -3,6 +3,7 @@ package com.capslock.raft.core.rpc;
 import com.capslock.raft.core.RaftService;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
+import com.capslock.raft.core.rpc.model.HeartBeatResponse;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,5 +28,11 @@ public class RpcServer {
     @RequestMapping(value = "append-entries", method = RequestMethod.POST)
     public AppendEntriesResponse appendEntries(@RequestBody final AppendEntriesRequest request) {
         return raftService.processAppendEntries(request);
+    }
+
+    @RequestMapping(value = "heart-beat", method = RequestMethod.GET)
+    public HeartBeatResponse heartBeat() {
+        raftService.processHeartBeat();
+        return new HeartBeatResponse();
     }
 }
