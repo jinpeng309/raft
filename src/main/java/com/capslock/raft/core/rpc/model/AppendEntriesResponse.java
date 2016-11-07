@@ -1,5 +1,6 @@
 package com.capslock.raft.core.rpc.model;
 
+import com.capslock.raft.core.model.LogEntryId;
 import lombok.Data;
 
 /**
@@ -7,4 +8,6 @@ import lombok.Data;
  */
 @Data
 public class AppendEntriesResponse {
+    private LogEntryId lastLogEntryId;
+    private boolean accepted;
 }

@@ -2,6 +2,7 @@ package com.capslock.raft.core;
 
 import com.capslock.raft.core.model.Endpoint;
 import com.capslock.raft.core.model.LogEntry;
+import com.capslock.raft.core.model.LogEntryId;
 import com.capslock.raft.core.model.RaftClusterNode;
 import com.capslock.raft.core.model.RaftServerState;
 import com.capslock.raft.core.model.Role;
@@ -47,6 +48,7 @@ public class RaftService {
     private Role role = Role.FOLLOWER;
     private Endpoint leader;
     private ConcurrentHashMap<Endpoint, RaftClusterNode> clusterNodeMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<LogEntryId, Integer> logEntryAppendCountMap = new ConcurrentHashMap<>();
     private Endpoint localEndpoint;
     private RaftServerState raftServerState;
     private AtomicInteger voteGranted = new AtomicInteger(0);
@@ -118,6 +120,14 @@ public class RaftService {
         electCompleted = false;
 
         clusterNodeMap.forEachEntry(clusterNodeMap.size(), entry -> requestVote(entry.getValue()));
+    }
+
+    public void processClientRequest(final byte[] data) {
+        if (role == Role.LEADER) {
+            final LogEntry logEntry = new LogEntry(raftServerState.getTerm(), data, LogEntry.LogType.LOG);
+            logStorage.append(logEntry);
+            appendLogEntriesToFollowers();
+        }
     }
 
     public synchronized void requestVote(final RaftClusterNode clusterNode) {
@@ -199,17 +209,14 @@ public class RaftService {
     }
 
     private synchronized void startHeartBeat() {
-        logger.info("start heart beat task");
         cancelHeartBeat();
         clusterNodeMap.forEachValue(clusterNodeMap.size(), clusterNode -> {
             ScheduledFuture<?> heartBeatTask = heartBeatScheduler.scheduleAtFixedRate(clusterNode::heartBeat, 0, 1, TimeUnit.SECONDS);
             heartBeatTasks.add(heartBeatTask);
         });
-        logger.info("after start heart task " + heartBeatTasks.size());
     }
 
     private synchronized void cancelHeartBeat() {
-        logger.info("cancel heart beat tasks " + heartBeatTasks.size());
         heartBeatTasks.forEach(task -> task.cancel(false));
         heartBeatTasks.clear();
     }
@@ -219,11 +226,11 @@ public class RaftService {
         return logEntry == null ? 0 : logEntry.getTerm();
     }
 
-    private void appendLogEntriesToFollowers() {
+    private synchronized void appendLogEntriesToFollowers() {
         clusterNodeMap.forEachValue(clusterNodeMap.size(), this::appendLogEntriesToFollow);
     }
 
-    private void appendLogEntriesToFollow(final RaftClusterNode clusterNode) {
+    private synchronized void appendLogEntriesToFollow(final RaftClusterNode clusterNode) {
         if (clusterNode.isAppending()) {
             return;
         }
@@ -250,9 +257,36 @@ public class RaftService {
 
             clusterNode
                     .appendLogEntries(request)
-                    .doOnNext(System.out::println)
+                    .doOnNext(this::processAppendEntriesResponse)
                     .doOnComplete(() -> appendLogEntriesToFollow(clusterNode))
+                    .doOnNext(this::processAppendEntriesResponse)
                     .subscribe();
+        }
+    }
+
+    private void processAppendEntriesResponse(final AppendEntriesResponse response) {
+        logger.info("rcv append response " + response);
+
+        if (response.isAccepted()) {
+            final long lastLogEntryTerm = response.getLastLogEntryId().getTerm();
+            final long lastLogEntryIndex = response.getLastLogEntryId().getLogIndex();
+            logEntryAppendCountMap.compute(response.getLastLogEntryId(), (LogEntryId logEntryId, Integer count) -> {
+                if (logEntryId == null) {
+                    return 1;
+                } else {
+                    return count + 1;
+                }
+            });
+            if (logEntryAppendCountMap.get(response.getLastLogEntryId()) >= majorSize()
+                    && lastLogEntryTerm == raftServerState.getTerm()) {
+                logEntryAppendCountMap.forEachKey(1, id -> {
+                    if (id.compareTo(response.getLastLogEntryId()) <= 0) {
+                        logEntryAppendCountMap.remove(id);
+                    }
+                });
+                this.committedLogIndex.set(lastLogEntryIndex);
+                //notify slaves
+            }
         }
     }
 
@@ -321,7 +355,6 @@ public class RaftService {
         if (role == Role.CANDIDATE) {
             becomeFollower();
         }
-        logger.info("heart beat");
         resetElectionTask();
     }
 }
