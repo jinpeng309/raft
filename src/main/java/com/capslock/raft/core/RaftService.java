@@ -20,11 +20,11 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -42,7 +42,7 @@ public class RaftService {
     private static final int MAX_APPEND_SIZE = 10;
     private ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
     private ScheduledExecutorService heartBeatScheduler = Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
-    private List<ScheduledFuture<?>> heartBeatTasks = new ArrayList<>();
+    private List<ScheduledFuture<?>> heartBeatTasks = new CopyOnWriteArrayList<>();
     private ScheduledFuture<?> electionTask;
     private Role role = Role.FOLLOWER;
     private Endpoint leader;
@@ -62,11 +62,13 @@ public class RaftService {
     private LogStorage logStorage;
     @Autowired
     private RpcClientFactory rpcClientFactory;
+    @Value("${server.port}")
+    private int servicePort;
 
     @PostConstruct
     public void init() throws UnknownHostException {
         final String localHost = Inet4Address.getLocalHost().getHostAddress();
-        localEndpoint = new Endpoint(localHost, 8081);
+        localEndpoint = new Endpoint(localHost, servicePort);
         raftServerState = raftContextStorage.getState();
         if (raftServerState == null) {
             raftServerState = new RaftServerState();
@@ -103,6 +105,9 @@ public class RaftService {
     }
 
     public void startElect() {
+        if (clusterSize() == 1) {
+            becomeLeader();
+        }
         logger.info("start elect");
         becomeCandidate();
 
@@ -134,6 +139,9 @@ public class RaftService {
         clusterNode.requestVote(request)
                 .doOnError(throwable -> {
                     if (voteResponsed.addAndGet(1) == clusterSize()) {
+                        if (electCompleted) {
+                            return;
+                        }
                         electCompleted = true;
                         if (role != Role.LEADER) {
                             resetElectionTask();
@@ -167,9 +175,9 @@ public class RaftService {
         return (clusterSize() + 1) / 2;
     }
 
-    private void processVoteRequestGranted() {
+    private synchronized void processVoteRequestGranted() {
         final int granted = this.voteGranted.addAndGet(1);
-        if (granted > majorSize()) {
+        if (granted >= majorSize()) {
             this.electCompleted = true;
             becomeLeader();
         }
@@ -190,17 +198,20 @@ public class RaftService {
         startHeartBeat();
     }
 
-    private void startHeartBeat() {
+    private synchronized void startHeartBeat() {
+        logger.info("start heart beat task");
+        cancelHeartBeat();
         clusterNodeMap.forEachValue(clusterNodeMap.size(), clusterNode -> {
             ScheduledFuture<?> heartBeatTask = heartBeatScheduler.scheduleAtFixedRate(clusterNode::heartBeat, 0, 1, TimeUnit.SECONDS);
             heartBeatTasks.add(heartBeatTask);
         });
+        logger.info("after start heart task " + heartBeatTasks.size());
     }
 
-    private void cancelHeartBeat() {
-        heartBeatTasks.forEach(task -> {
-            task.cancel(false);
-        });
+    private synchronized void cancelHeartBeat() {
+        logger.info("cancel heart beat tasks " + heartBeatTasks.size());
+        heartBeatTasks.forEach(task -> task.cancel(false));
+        heartBeatTasks.clear();
     }
 
     private long getTermForLogIndex(final long logIndex) {
@@ -253,6 +264,10 @@ public class RaftService {
     private void becomeFollower() {
         cancelHeartBeat();
         role = Role.FOLLOWER;
+        voteGranted.set(0);
+        voteResponsed.set(0);
+        raftServerState.setVoteFor(null);
+        raftContextStorage.saveState(raftServerState);
     }
 
     public synchronized RequestVoteResponse processRequestVote(final RequestVoteRequest request) {
@@ -303,7 +318,10 @@ public class RaftService {
     }
 
     public void processHeartBeat() {
-        System.out.println("heart beat");
+        if (role == Role.CANDIDATE) {
+            becomeFollower();
+        }
+        logger.info("heart beat");
         resetElectionTask();
     }
 }
