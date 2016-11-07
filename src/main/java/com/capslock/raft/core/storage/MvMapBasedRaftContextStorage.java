@@ -17,7 +17,7 @@ public class MvMapBasedRaftContextStorage implements RaftContextStorage {
     private static final String STATE_KEY = "STATE";
     private MVMap<String, Object> contextMap;
     @Autowired
-    private MVStore mvStore;
+    public MVStore mvStore;
 
     @PostConstruct
     public void init() {

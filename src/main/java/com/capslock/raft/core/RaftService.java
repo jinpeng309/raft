@@ -32,6 +32,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 import java.util.logging.Logger;
 
 /**
@@ -93,7 +94,6 @@ public class RaftService {
             System.err.println("node size must be odd");
             System.exit(1);
         }
-
         startElectionTimer();
     }
 
@@ -102,7 +102,7 @@ public class RaftService {
     }
 
     private void startElectionTimer() {
-        final int timeout = 10000;
+        final int timeout = 20000;
         electionTask = scheduledExecutorService.schedule(this::startElect, timeout, TimeUnit.MILLISECONDS);
     }
 
@@ -204,6 +204,10 @@ public class RaftService {
         role = Role.LEADER;
         cancelElectionTask();
         leader = localEndpoint;
+        for (int i = 0; i < 3; i++) {
+            processClientRequest(("data-" + i).getBytes());
+        }
+
         appendLogEntriesToFollowers();
         startHeartBeat();
     }
@@ -211,7 +215,7 @@ public class RaftService {
     private synchronized void startHeartBeat() {
         cancelHeartBeat();
         clusterNodeMap.forEachValue(clusterNodeMap.size(), clusterNode -> {
-            ScheduledFuture<?> heartBeatTask = heartBeatScheduler.scheduleAtFixedRate(clusterNode::heartBeat, 0, 1, TimeUnit.SECONDS);
+            ScheduledFuture<?> heartBeatTask = heartBeatScheduler.scheduleAtFixedRate(clusterNode::heartBeat, 0, 5, TimeUnit.SECONDS);
             heartBeatTasks.add(heartBeatTask);
         });
     }
@@ -257,21 +261,32 @@ public class RaftService {
 
             clusterNode
                     .appendLogEntries(request)
-                    .doOnNext(this::processAppendEntriesResponse)
+                    .doOnNext(response -> {
+                        logger.info("append response " + response);
+                    })
+                    .doOnError(throwable -> {
+                        logger.info("append error " + throwable);
+                    })
+                    .doOnComplete(() -> logger.info("complete"))
+                    .doOnNext(appendResponse -> {
+                        processAppendEntriesResponse(clusterNode, appendResponse);
+                    })
                     .doOnComplete(() -> appendLogEntriesToFollow(clusterNode))
-                    .doOnNext(this::processAppendEntriesResponse)
                     .subscribe();
         }
     }
 
-    private void processAppendEntriesResponse(final AppendEntriesResponse response) {
+    private void processAppendEntriesResponse(final RaftClusterNode clusterNode, final AppendEntriesResponse response) {
         logger.info("rcv append response " + response);
 
         if (response.isAccepted()) {
-            final long lastLogEntryTerm = response.getLastLogEntryId().getTerm();
-            final long lastLogEntryIndex = response.getLastLogEntryId().getLogIndex();
-            logEntryAppendCountMap.compute(response.getLastLogEntryId(), (LogEntryId logEntryId, Integer count) -> {
-                if (logEntryId == null) {
+            final LogEntryId lastLogEntryId = response.getLastLogEntryId();
+            final long lastLogEntryTerm = lastLogEntryId.getTerm();
+            final long lastLogEntryIndex = lastLogEntryId.getLogIndex();
+            clusterNode.setMatchedLogIndex(lastLogEntryIndex);
+            clusterNode.setNextLogIndex(lastLogEntryIndex + 1);
+            logEntryAppendCountMap.compute(lastLogEntryId, (LogEntryId logEntryId, Integer count) -> {
+                if (count == null) {
                     return 1;
                 } else {
                     return count + 1;
@@ -325,9 +340,16 @@ public class RaftService {
     }
 
     public AppendEntriesResponse processAppendEntries(final AppendEntriesRequest request) {
+        logger.info("rcv append request " + request);
         resetElectionTask();
         updateTerm(request.getTerm());
-        return new AppendEntriesResponse();
+        final AppendEntriesResponse response = new AppendEntriesResponse();
+        response.setAccepted(true);
+        request.getLogEntries().forEach(logStorage::append);
+        LogEntry logEntry = logStorage.getLastLogEntry();
+        response.setLastLogEntryId(new LogEntryId(logEntry.getTerm(), logStorage.getLastLogIndex()));
+        logger.info("return response " + response);
+        return response;
     }
 
     public void resetElectionTask() {
@@ -352,9 +374,23 @@ public class RaftService {
     }
 
     public void processHeartBeat() {
+        logger.info("heart beat");
         if (role == Role.CANDIDATE) {
             becomeFollower();
         }
         resetElectionTask();
+    }
+
+    public static void main(String[] args) {
+        ConcurrentHashMap<Long, Long> map = new ConcurrentHashMap<>();
+        map.compute(1L, new BiFunction<Long, Long, Long>() {
+            @Override
+            public Long apply(final Long aLong, final Long aLong2) {
+                System.out.println(aLong);
+                System.out.println(aLong2);
+                return 2L;
+            }
+        });
+        System.out.println(map);
     }
 }

@@ -18,7 +18,7 @@ import java.util.List;
 public class MvMapBasedLogStorage implements LogStorage {
     private MVMap<Long, LogEntry> logEntryMVMap;
     @Autowired
-    private MVStore mvStore;
+    public MVStore mvStore;
 
     @PostConstruct
     public void init() {

@@ -36,6 +36,7 @@ public class RaftClusterNode {
         }
 
         setIsAppending(true);
+        System.out.println(getRpcClient() + "append log request " + request);
         return getRpcClient()
                 .appendEntries(request)
                 .observeOn(Schedulers.io())
