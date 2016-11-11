@@ -3,6 +3,8 @@ package com.capslock.raft.core.rpc;
 import com.capslock.raft.core.RaftService;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
+import com.capslock.raft.core.rpc.model.CommitRequest;
+import com.capslock.raft.core.rpc.model.CommitResponse;
 import com.capslock.raft.core.rpc.model.HeartBeatResponse;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
@@ -34,5 +36,10 @@ public class RpcServer {
     public HeartBeatResponse heartBeat() {
         raftService.processHeartBeat();
         return new HeartBeatResponse();
+    }
+
+    @RequestMapping(value = "commit", method = RequestMethod.POST)
+    public CommitResponse commitLog(@RequestBody final CommitRequest request){
+        return raftService.commitLog(request);
     }
 }

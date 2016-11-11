@@ -10,6 +10,7 @@ import com.capslock.raft.core.rpc.RpcClientFactory;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
 import com.capslock.raft.core.rpc.model.CommitRequest;
+import com.capslock.raft.core.rpc.model.CommitResponse;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
 import com.capslock.raft.core.storage.LogStorage;
@@ -285,7 +286,7 @@ public class RaftService {
                     appendNodeSize++;
                 }
             }
-            if (appendNodeSize >= majorSize()) {
+            if (appendNodeSize >= majorSize() && lastLogEntryTerm == raftServerState.getTerm()) {
                 this.committedLogIndex.set(lastLogEntryIndex);
                 broadcastCommit();
             }
@@ -372,5 +373,10 @@ public class RaftService {
             becomeFollower();
         }
         resetElectionTask();
+    }
+
+    public CommitResponse commitLog(final CommitRequest request) {
+        this.committedLogIndex.set(request.getLongIndex());
+        return new CommitResponse(true);
     }
 }
