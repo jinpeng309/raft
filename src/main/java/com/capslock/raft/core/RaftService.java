@@ -24,6 +24,7 @@ import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -32,7 +33,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiFunction;
 import java.util.logging.Logger;
 
 /**
@@ -102,7 +102,7 @@ public class RaftService {
     }
 
     private void startElectionTimer() {
-        final int timeout = 20000;
+        final int timeout = 20000 + new Random(System.currentTimeMillis()).nextInt(10000);
         electionTask = scheduledExecutorService.schedule(this::startElect, timeout, TimeUnit.MILLISECONDS);
     }
 
@@ -261,16 +261,7 @@ public class RaftService {
 
             clusterNode
                     .appendLogEntries(request)
-                    .doOnNext(response -> {
-                        logger.info("append response " + response);
-                    })
-                    .doOnError(throwable -> {
-                        logger.info("append error " + throwable);
-                    })
-                    .doOnComplete(() -> logger.info("complete"))
-                    .doOnNext(appendResponse -> {
-                        processAppendEntriesResponse(clusterNode, appendResponse);
-                    })
+                    .doOnNext(appendResponse -> processAppendEntriesResponse(clusterNode, appendResponse))
                     .doOnComplete(() -> appendLogEntriesToFollow(clusterNode))
                     .subscribe();
         }
@@ -379,18 +370,5 @@ public class RaftService {
             becomeFollower();
         }
         resetElectionTask();
-    }
-
-    public static void main(String[] args) {
-        ConcurrentHashMap<Long, Long> map = new ConcurrentHashMap<>();
-        map.compute(1L, new BiFunction<Long, Long, Long>() {
-            @Override
-            public Long apply(final Long aLong, final Long aLong2) {
-                System.out.println(aLong);
-                System.out.println(aLong2);
-                return 2L;
-            }
-        });
-        System.out.println(map);
     }
 }
