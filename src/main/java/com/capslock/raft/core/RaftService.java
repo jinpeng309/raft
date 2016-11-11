@@ -9,6 +9,7 @@ import com.capslock.raft.core.model.Role;
 import com.capslock.raft.core.rpc.RpcClientFactory;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
+import com.capslock.raft.core.rpc.model.CommitRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
 import com.capslock.raft.core.storage.LogStorage;
@@ -67,6 +68,8 @@ public class RaftService {
     private RpcClientFactory rpcClientFactory;
     @Value("${server.port}")
     private int servicePort;
+    @Autowired
+    private StateMachine stateMachine;
 
     @PostConstruct
     public void init() throws UnknownHostException {
@@ -276,24 +279,23 @@ public class RaftService {
             final long lastLogEntryIndex = lastLogEntryId.getLogIndex();
             clusterNode.setMatchedLogIndex(lastLogEntryIndex);
             clusterNode.setNextLogIndex(lastLogEntryIndex + 1);
-            logEntryAppendCountMap.compute(lastLogEntryId, (LogEntryId logEntryId, Integer count) -> {
-                if (count == null) {
-                    return 1;
-                } else {
-                    return count + 1;
+            int appendNodeSize = 0;
+            for (final RaftClusterNode raftClusterNode : clusterNodeMap.values()) {
+                if (raftClusterNode.getNextLogIndex() > lastLogEntryIndex) {
+                    appendNodeSize++;
                 }
-            });
-            if (logEntryAppendCountMap.get(response.getLastLogEntryId()) >= majorSize()
-                    && lastLogEntryTerm == raftServerState.getTerm()) {
-                logEntryAppendCountMap.forEachKey(1, id -> {
-                    if (id.compareTo(response.getLastLogEntryId()) <= 0) {
-                        logEntryAppendCountMap.remove(id);
-                    }
-                });
+            }
+            if (appendNodeSize >= majorSize()) {
                 this.committedLogIndex.set(lastLogEntryIndex);
-                //notify slaves
+                broadcastCommit();
             }
         }
+    }
+
+    private void broadcastCommit() {
+        clusterNodeMap.forEachValue(clusterNodeMap.size(), clusterNode -> {
+            clusterNode.commitLog(new CommitRequest(committedLogIndex.get()));
+        });
     }
 
     private void becomeCandidate() {

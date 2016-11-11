@@ -2,6 +2,8 @@ package com.capslock.raft.core.rpc;
 
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
+import com.capslock.raft.core.rpc.model.CommitRequest;
+import com.capslock.raft.core.rpc.model.CommitResponse;
 import com.capslock.raft.core.rpc.model.HeartBeatResponse;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
@@ -22,4 +24,7 @@ public interface RpcClient {
 
     @GET("heart-beat")
     Observable<HeartBeatResponse> heartBeat();
+
+    @POST("commit")
+    Observable<CommitResponse> commitLog(@Body final CommitRequest request);
 }

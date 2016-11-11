@@ -3,6 +3,7 @@ package com.capslock.raft.core.model;
 import com.capslock.raft.core.rpc.RpcClient;
 import com.capslock.raft.core.rpc.model.AppendEntriesRequest;
 import com.capslock.raft.core.rpc.model.AppendEntriesResponse;
+import com.capslock.raft.core.rpc.model.CommitRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteRequest;
 import com.capslock.raft.core.rpc.model.RequestVoteResponse;
 import io.reactivex.Observable;
@@ -36,7 +37,6 @@ public class RaftClusterNode {
         }
 
         setIsAppending(true);
-        System.out.println(getRpcClient() + "append log request " + request);
         return getRpcClient()
                 .appendEntries(request)
                 .observeOn(Schedulers.io())
@@ -55,5 +55,13 @@ public class RaftClusterNode {
 
     public void heartBeat() {
         getRpcClient().heartBeat().observeOn(Schedulers.io()).subscribe();
+    }
+
+    public void commitLog(final CommitRequest request) {
+        getRpcClient()
+                .commitLog(request)
+                .observeOn(Schedulers.io())
+                .retry(3)
+                .subscribe();
     }
 }
