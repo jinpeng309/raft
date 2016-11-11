@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /**
  * Created by alvin.
@@ -287,7 +288,10 @@ public class RaftService {
                 }
             }
             if (appendNodeSize >= majorSize() && lastLogEntryTerm == raftServerState.getTerm()) {
+                final long lastCommitLogIndex = committedLogIndex.get();
                 this.committedLogIndex.set(lastLogEntryIndex);
+                final List<LogEntry> logEntries = logStorage.getLogEntries(lastCommitLogIndex, lastLogEntryIndex);
+                stateMachine.commit(logEntries.stream().map(LogEntry::getValue).collect(Collectors.toList()));
                 broadcastCommit();
             }
         }
@@ -376,7 +380,11 @@ public class RaftService {
     }
 
     public CommitResponse commitLog(final CommitRequest request) {
-        this.committedLogIndex.set(request.getLongIndex());
+        final long newCommitLogIndex = request.getLongIndex();
+        final long lastCommitLogIndex = committedLogIndex.get();
+        committedLogIndex.set(request.getLongIndex());
+        final List<LogEntry> logEntries = logStorage.getLogEntries(lastCommitLogIndex, newCommitLogIndex);
+        stateMachine.commit(logEntries.stream().map(LogEntry::getValue).collect(Collectors.toList()));
         return new CommitResponse(true);
     }
 }

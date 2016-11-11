@@ -10,4 +10,7 @@ import lombok.Data;
 @AllArgsConstructor
 public class CommitResponse {
     private boolean accepted;
+
+    public CommitResponse() {
+    }
 }
