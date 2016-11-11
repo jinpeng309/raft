@@ -9,7 +9,7 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 public class CommitRequest {
-    private long longIndex;
+    private long logIndex;
 
     public CommitRequest() {
     }

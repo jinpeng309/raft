@@ -290,6 +290,8 @@ public class RaftService {
             if (appendNodeSize >= majorSize() && lastLogEntryTerm == raftServerState.getTerm()) {
                 final long lastCommitLogIndex = committedLogIndex.get();
                 this.committedLogIndex.set(lastLogEntryIndex);
+                raftServerState.setCommittedLogIndex(lastLogEntryIndex);
+                raftContextStorage.saveState(raftServerState);
                 final List<LogEntry> logEntries = logStorage.getLogEntries(lastCommitLogIndex, lastLogEntryIndex);
                 stateMachine.commit(logEntries.stream().map(LogEntry::getValue).collect(Collectors.toList()));
                 broadcastCommit();
@@ -364,7 +366,6 @@ public class RaftService {
     private void updateTerm(final long term) {
         if (term > raftServerState.getTerm()) {
             raftServerState.setTerm(term);
-            raftServerState.setCommittedLogIndex(0);
             raftServerState.setVoteFor(null);
             becomeFollower();
             saveState();
@@ -380,9 +381,9 @@ public class RaftService {
     }
 
     public CommitResponse commitLog(final CommitRequest request) {
-        final long newCommitLogIndex = request.getLongIndex();
+        final long newCommitLogIndex = request.getLogIndex();
         final long lastCommitLogIndex = committedLogIndex.get();
-        committedLogIndex.set(request.getLongIndex());
+        committedLogIndex.set(request.getLogIndex());
         final List<LogEntry> logEntries = logStorage.getLogEntries(lastCommitLogIndex, newCommitLogIndex);
         stateMachine.commit(logEntries.stream().map(LogEntry::getValue).collect(Collectors.toList()));
         return new CommitResponse(true);
